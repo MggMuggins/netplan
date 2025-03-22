@@ -208,6 +208,7 @@ int main(int argc, char** argv)
     /* are we being called as systemd generator? */
     gboolean called_as_generator = (strstr(argv[0], "systemd/system-generators/") != NULL);
     g_autofree char* generator_run_stamp = NULL;
+    g_autofree char* netplan_try_stamp = NULL;
     glob_t gl;
     int error_code = 0;
     char* ignore_errors_env = NULL;
@@ -235,6 +236,19 @@ int main(int argc, char** argv)
         if (files == NULL || g_strv_length(files) != 3 || files[0] == NULL) {
             g_fprintf(stderr, "%s can not be called directly, use 'netplan generate'.", argv[0]);
             return 1;
+        }
+        // The file at netplan_try_stamp is created while `netplan try` is waiting
+        // for user confirmation. If generate is triggered while netplan try is
+        // running, assume that `systemctl daemon-reload` triggered the generate;
+        // networkctl needs to reload the restored config, so don't generated a
+        // new one.
+        netplan_try_stamp = g_build_path(G_DIR_SEPARATOR_S,
+                                         rootdir != NULL ? rootdir : G_DIR_SEPARATOR_S,
+                                         "run/netplan/netplan-try.ready",
+                                         NULL);
+        if (g_access(netplan_try_stamp, F_OK) == 0) {
+            g_fprintf(stderr, "netplan try is restoring configuration, remove %s to force re-run\n", netplan_try_stamp);
+            return 0;
         }
         generator_run_stamp = g_build_path(G_DIR_SEPARATOR_S, files[0], "netplan.stamp", NULL);
         if (g_access(generator_run_stamp, F_OK) == 0) {
